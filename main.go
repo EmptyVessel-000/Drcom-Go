@@ -104,11 +104,15 @@ func dial(cfg config) (*net.UDPConn, error) {
 	return conn, nil
 }
 
+// errNoResponse 表示认证服务器没有任何回应：多半是不在校园网内，
+// 也可能链路未通。这种情况不该刷日志，应该安静等待网络恢复。
+var errNoResponse = errors.New("认证服务器无应答")
+
 func login(conn *net.UDPConn, cfg config, sp spec, ip net.IP, mac net.HardwareAddr) (*session, error) {
 	challenge := challengePacket(uint16(time.Now().UnixNano() % 0xFFFF))
 	resp, err := exchange(conn, challenge, 0x02, 3*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("挑战无应答: %w", err)
+		return nil, fmt.Errorf("%w: 挑战无应答", errNoResponse)
 	}
 	if len(resp) < 8 {
 		return nil, errors.New("挑战应答过短")
@@ -168,28 +172,47 @@ func main() {
 
 	backoff := []time.Duration{5 * time.Second, 15 * time.Second, 60 * time.Second, 300 * time.Second}
 	step := 0
+	waiting := false
 	for {
 		ip, mac, err := localAddr(cfg.Interface)
 		if err != nil {
-			log.Printf("取网卡地址失败: %v", err)
-			time.Sleep(backoff[step])
+			if !waiting {
+				log.Printf("网卡 %s 暂不可用(%v)，等待网络恢复", cfg.Interface, err)
+				waiting = true
+			}
+			time.Sleep(20 * time.Second)
 			continue
 		}
 		conn, err := dial(cfg)
 		if err != nil {
-			log.Printf("打开套接字失败: %v", err)
-			time.Sleep(backoff[step])
+			if !waiting {
+				log.Printf("打开套接字失败: %v，等待网络恢复", err)
+				waiting = true
+			}
+			time.Sleep(20 * time.Second)
 			continue
 		}
 		s, err := login(conn, cfg, sp, ip, mac)
 		if err != nil {
-			log.Printf("登录失败(%s): %v", ip, err)
 			conn.Close()
+			if errors.Is(err, errNoResponse) {
+				if !waiting {
+					log.Printf("认证服务器 %s 无应答（可能不在校园网内），等待网络恢复", cfg.Server)
+					waiting = true
+				}
+				time.Sleep(20 * time.Second)
+				continue
+			}
+			log.Printf("登录失败(%s): %v", ip, err)
 			if step < len(backoff)-1 {
 				step++
 			}
 			time.Sleep(backoff[step])
 			continue
+		}
+		if waiting {
+			log.Printf("网络已恢复")
+			waiting = false
 		}
 		log.Printf("登录成功 账号=%s 地址=%s 网卡=%s 服务器=%s", cfg.Username, ip, mac, cfg.Server)
 		step = 0
