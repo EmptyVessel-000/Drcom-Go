@@ -7,3 +7,4 @@
 /drcom-windows-amd64.exe
 *.exe
 *.test
+dist/
