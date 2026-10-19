@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 )
@@ -146,7 +147,12 @@ func macUint(mac net.HardwareAddr) uint64 {
 	return x
 }
 
-var errNoReply = errors.New("no keepalive reply")
+// errNoReply 表示认证服务器没有任何回应：多半是不在校园网内，也可能链路未通。
+// 这种情况安静等待网络恢复即可，由调用方决定等待的时长。
+var errNoReply = errors.New("服务器无应答")
+
+// errSocketIO 表示套接字本身收发失败（例如没有到服务器的路由），需要重建套接字。
+var errSocketIO = errors.New("套接字收发失败")
 
 // session 持有登录后的会话尾与序号，掉线即整体丢弃重新登录。
 // loginTail 是登录应答里的 16 字节尾，首保活每次都用它；
@@ -161,17 +167,17 @@ type session struct {
 // exchange 发一个包并等待首字节符合 want 的应答。
 func exchange(conn *net.UDPConn, packet []byte, want byte, timeout time.Duration) ([]byte, error) {
 	if _, err := conn.Write(packet); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errSocketIO, err)
 	}
 	buf := make([]byte, 2048)
 	deadline := time.Now().Add(timeout)
 	for {
 		if err := conn.SetReadDeadline(deadline); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errSocketIO, err)
 		}
 		n, err := conn.Read(buf)
 		if err != nil {
-			return nil, errNoReply
+			return nil, fmt.Errorf("%w: %w", errNoReply, err)
 		}
 		if n > 0 && buf[0] == want {
 			out := make([]byte, n)
