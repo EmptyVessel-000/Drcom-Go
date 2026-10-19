@@ -99,10 +99,10 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/drcom-linux-amd64 .
 ## 部署
 
 ```
-install -m 0755 dist/drcom-linux-amd64 /usr/local/bin/drcom
-mkdir -p /etc/drcom && install -m 0600 config.json /etc/drcom/config.json
-install -m 0644 deploy/drcom.service /etc/systemd/system/drcom.service
-systemctl daemon-reload && systemctl enable --now drcom
+install -m 0755 dist/drcom-linux-amd64 /usr/local/bin/drcom-go
+mkdir -p /etc/drcom-go && install -m 0600 config.json /etc/drcom-go/config.json
+install -m 0644 deploy/drcom-go.service /etc/systemd/system/drcom-go.service
+systemctl daemon-reload && systemctl enable --now drcom-go
 ```
 
 配置文件含明文密码，权限设为 600。
@@ -110,7 +110,7 @@ systemctl daemon-reload && systemctl enable --now drcom
 ## 日志
 
 ```
-journalctl -u drcom -n 20
+journalctl -u drcom-go -n 20
 ```
 
 正常情况下保活不产生日志。登录成功输出一行；任何失败只在状态切换时输出一行，等待期内不再重复。认证服务器无回应时每 20 秒重试一次，应答不合协议时按 5、15、60、300 秒退避。
@@ -130,6 +130,7 @@ journalctl -u drcom -n 20
 - 仅在西安石油大学鄠邑校区的 DRCOM 5.2-d 上验证过；p 版与 x 版不支持。
 - 服务器不校验登录报文中的地址与 MAC。抓包中填写的是过期地址与另一网卡的 MAC，登录仍然成功。该结论来自实测，协议文档中并无说明。
 - 程序按网卡名查地址，Windows 下 Interface 需填适配器名（如「以太网」），不能沿用 Linux 的 enp1s0f0 之类。认证流程在 Windows 上尚未实测。
+- 配置文件位置：Linux 上默认 `/etc/drcom-go/config.json`；Windows 上取程序所在目录的 `config.json`，可用 `-config` 指定其他路径。文件不存在时程序会生成一份模板并退出。
 - 不保存状态文件，也不提供查询子命令，运行状态以日志为准。
 
 ## 许可

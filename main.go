@@ -6,9 +6,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -37,9 +40,16 @@ func hexField(name, s string, n int) ([]byte, error) {
 	return b, nil
 }
 
+
 func loadConfig(path string) (config, spec, error) {
 	var c config
 	raw, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.WriteFile(path, []byte(`{\n  "Server": "",\n  "Username": "",\n  "Password": "",\n  "Interface": "",\n  "HostName": "",\n  "HostOS": "",\n  "AuthVersion": "",\n  "KeepAliveVersion": "",\n  "ControlCheckStatus": "",\n  "AdapterNum": "",\n  "IPDog": ""\n}\n`), 0600); err != nil {
+			return c, spec{}, err
+		}
+		return c, spec{}, fmt.Errorf("已生成配置模板 %s，请填写后重新启动", path)
+	}
 	if err != nil {
 		return c, spec{}, err
 	}
@@ -100,6 +110,18 @@ func loadConfig(path string) (config, spec, error) {
 		HostOS:             c.HostOS,
 	}
 	return c, sp, nil
+}
+
+// defaultConfigPath 按平台给默认配置位置：Unix 走 /etc，Windows 与程序同目录。
+func defaultConfigPath() string {
+	if runtime.GOOS == "windows" {
+		exe, err := os.Executable()
+		if err == nil {
+			return filepath.Join(filepath.Dir(exe), "config.json")
+		}
+		return "config.json"
+	}
+	return "/etc/drcom-go/config.json"
 }
 
 // localAddr 只在启动时读一次网卡；登录与重连都用这一份地址。
@@ -186,7 +208,7 @@ func round(conn *net.UDPConn, cfg config, sp spec, s *session, ip net.IP) error 
 }
 
 func main() {
-	cfgPath := flag.String("config", "/etc/drcom/config.json", "配置文件路径")
+	cfgPath := flag.String("config", defaultConfigPath(), "配置文件路径")
 	once := flag.Bool("once", false, "登录并跑一轮保活后退出")
 	flag.Parse()
 
