@@ -96,6 +96,91 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/drcom-linux-amd64 .
 
 后四个字段为协议常量，取值随校区而异，示例值仅在实测环境有效，更换网络后必须重新核对。
 
+## 协议常量怎么填
+
+配置里 Server 起往后的字段与学校绑定，不能凭经验猜，只能取。取得方式有两种。
+
+### 方式一：查 drcom-generic 的校区条目
+
+[drcom-generic](https://github.com/drcoms/drcom-generic) 的 wiki 维护着各校实测参数，条目名一般是学校加校区。找到自己学校的那一条后，对照下表取值：
+
+| 配置字段 | 条目里的名字 |
+| --- | --- |
+| Server | `server` 或 `dhcp_server` |
+| AuthVersion | `AUTH_VERSION` |
+| KeepAliveVersion | `KEEP_ALIVE_VERSION` |
+| ControlCheckStatus | `CONTROLCHECKSTATUS` |
+| AdapterNum | `ADAPTERNUM` |
+| IPDog | `IPDOG` |
+
+条目里的值多写成 Python 字面量，例如 `'\x0a\x00'`，对应配置里的 `"0a00"`：去掉 `\x`、小写、不加分隔。
+
+注意 `dhcp_server` 在不同校区含义不同。西安石油大学鄠邑校区的条目里它填的是网关 10.29.6.254，而实际认证服务器是 192.168.255.249，两者不是一回事。务必先确认这个值到底是对端地址还是网关。
+
+### 方式二：抓一次登录包
+
+条目里没有自己学校时，只能从真实报文里取。步骤：
+
+1. 在持有校园网地址的机器上抓 UDP 61440 的报文；
+2. 触发一次登录，通常是把另一个客户端断开后重新连接；
+3. 登录成功后对照 `docs/protocol.md` 的偏移表读值。
+
+各字段在报文里的位置：
+
+| 配置字段 | 报文位置 |
+| --- | --- |
+| AuthVersion | 登录请求第 310 字节起 2 字节 |
+| KeepAliveVersion | 保活请求第 6 字节起 2 字节 |
+| ControlCheckStatus | 登录请求第 142 字节起的固定片段 |
+| AdapterNum | 登录请求第 162 字节起的固定片段 |
+| IPDog | 登录请求第 105 字节起 1 字节 |
+| Server | 报文的目的地址，即 UDP 对端的 IP |
+
+取到后按配置要求的字节数写成十六进制字符串：AuthVersion 与 KeepAliveVersion 各 2 字节，其余三个各 1 字节。程序启动时会校验字节数，长度不对直接报错退出。
+
+### 判断填对了没有
+
+启动后看日志。填对时几秒内出现「上线成功」一行；填错时进程不会退出，而是进入等待重试，日志里只留一行失败原因，之后每 20 秒安静重试。
+
+要看的是那一行原因：`登录无成功应答` 说明服务器有回话但拒绝了，多半是常量或账号不对；完全没有日志增长说明根本没有报文往返，多半是 Server 地址或网卡不对。
+
+### 自查清单
+
+- Server 必须是 UDP 61440 能到达的地址，先在目标机器上确认能通；
+- Interface 必须是拿到了校园网地址的那块网卡，不是内网网卡；
+- 五个十六进制字段不能留空，也不能写 PHP 或 Python 的转义写法；
+- 换校区或学校升级认证系统后，这些值都要重新核对。
+## 校区预设
+
+下表是已知校区的协议常量，取自 [drcom-generic 可用学校列表](https://github.com/drcoms/drcom-generic/wiki/可用学校列表)。只收录 d 版且四项字段齐全的条目，p 版与 x 版不适用本程序。
+
+表中 `HostOS` 只影响上报标识，可取任意值，这里统一写 `8089D`。
+
+| 校区 | Server | AuthVersion | KeepAliveVersion | ControlCheckStatus | AdapterNum | IPDog |
+| --- | --- | --- | --- | --- | --- | --- |
+| 西安石油大学鄠邑校区 | 192.168.255.249 | 0a00 | dc02 | 20 | 07 | 01 |
+| 广东财经大学 | 按网络实际情况填写 | 2b00 | dc02 | 20 | 03 | 01 |
+| 云南师范大学商学院 杨林校区 | 172.26.0.2 | 1f00 | dc02 | 20 | 04 | 01 |
+| 云南师范大学商学院 海源校区 | 192.168.0.2 | 2e00 | dc02 | 20 | 03 | 01 |
+| 重庆城市管理职业学院 | 172.16.8.10 | 2b00 | dc02 | 20 | 01 | 01 |
+| 武汉工程科技学院 | 10.254.253.250 | 2c00 | dc02 | 20 | 08 | 01 |
+
+湖北长江大学与西安邮电大学是 p 版，需要额外的 `pppoe_flag` 与 `keep_alive2_flag`，本程序不支持。
+
+示例配置对应西安石油大学鄠邑校区那一行：
+
+```json
+{
+  "Server": "192.168.255.249",
+  "HostOS": "8089D",
+  "AuthVersion": "0a00",
+  "KeepAliveVersion": "dc02",
+  "ControlCheckStatus": "20",
+  "AdapterNum": "07",
+  "IPDog": "01"
+}
+```
+
 ## 部署
 
 ```
