@@ -1,0 +1,109 @@
+# Drcom-Go
+
+校园网 DRCOM 认证客户端，Go 实现。
+
+本项目在西安石油大学鄠邑校区（DRCOM 5.2-d）实测并通过。
+
+## 适用范围
+
+满足以下条件时可直接使用：
+
+- 认证协议为 DRCOM 5.2-d，即纯 DHCP 方式，不含 PPPoE，也不含 802.1x，与西安石油大学鄠邑校区一致；
+- 网关主机持有一块接入校园网的网卡，并已取得校园网地址；
+- 认证服务器地址与四个协议常量已知，可从 [drcom-generic](https://github.com/drcoms/drcom-generic) 的校区条目或抓包确认。
+
+以下情况不适用：
+
+- p 版协议，其报文额外包含 `pppoe_flag` 与 `keep_alive2_flag`；
+- x 版协议，采用 EAPOL，报文结构完全不同；
+- 认证过程要求网页交互、短信或二次验证。
+
+## 原理
+
+认证绑定的是出口地址，只有持有校园网地址的网卡才能完成登录，因此客户端必须运行在网关主机上。登录成功后，内网设备通过该主机的 NAT 共享已认证的出口，无需各自认证。
+
+## 运行行为
+
+- 向认证服务器发送 20 字节挑战请求，从应答中取 4 字节 salt；
+- 以 salt 计算摘要，发送 330 字节登录请求，从成功应答中取 16 字节会话尾；
+- 每 20 秒执行一轮保活，包含一个 42 字节首保活与一对 40 字节报文；
+- 保活在 10 秒内未收到 0x07 应答即判定掉线并重新登录；
+- 登录失败按 5、15、60、300 秒四档退避，成功后复位。
+
+服务器在账号被其他位置顶下线时不会发送注销报文，只会停止响应，因此掉线只能由保活超时判定。
+
+## 构建
+
+需要 Go 1.22 或更高版本。
+
+```
+make build      # Linux amd64
+make windows    # Windows amd64，配置里 Interface 填适配器名
+make test
+```
+
+不使用 make 时：
+
+```
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o drcom .
+```
+
+## 配置
+
+复制 `config.example.json` 后按实际环境填写。
+
+| 字段 | 说明 |
+| --- | --- |
+| Server | 认证服务器地址。西安石油大学鄠邑校区为 192.168.255.249，其他网络按实际填写 |
+| Username | 校园网账号 |
+| Password | 密码 |
+| Interface | 持有校园网地址的网卡，例如 enp1s0f0 |
+| HostName | 上报的主机名，可任意填写 |
+| HostOS | 客户端标识，示例取值 8089D，来自旧客户端 |
+| AuthVersion | 认证协议版本，示例 0a00 |
+| KeepAliveVersion | 保活版本，示例 dc02 |
+| ControlCheckStatus | 控制检查位，示例 20 |
+| AdapterNum | 适配器数量位，示例 07 |
+| IPDog | 地址监视位，示例 01 |
+
+后四个字段为协议常量，取值随校区而异，示例值仅在实测环境有效，更换网络后必须重新核对。
+
+## 部署
+
+```
+install -m 0755 drcom /usr/local/bin/drcom
+mkdir -p /etc/drcom && install -m 0600 config.json /etc/drcom/config.json
+install -m 0644 deploy/drcom.service /etc/systemd/system/drcom.service
+systemctl daemon-reload && systemctl enable --now drcom
+```
+
+配置文件含明文密码，权限设为 600。
+
+## 日志
+
+```
+journalctl -u drcom -n 20
+```
+
+正常情况下保活不产生日志，仅在登录与重新登录时各输出一行。每 20 秒出现一条重登记录，说明线路或认证状态不稳定。
+
+## 协议
+
+报文结构、字段偏移与校验算法见 [docs/protocol.md](docs/protocol.md)。
+
+## 测试
+
+`protocol_test.go` 内置一份 330 字节登录报文的十六进制基准，由示例账号与固定 salt、MAC 生成。测试以相同输入重新构造报文并逐字节比对，用于固定字段顺序与校验算法；另有四个报文长度断言（20、42、40、40）。
+
+校验算法有一处兼容性要求：旧实现以 `re.findall('....', s)` 取四字节组，而正则的点号不匹配 0x0a，遇到 0x0a 即断开重新分组。实现须遵循该行为，否则校验值无法与服务器一致。
+
+## 已知限制
+
+- 仅在西安石油大学鄠邑校区的 DRCOM 5.2-d 上验证过；p 版与 x 版不支持。
+- 服务器不校验登录报文中的地址与 MAC。抓包中填写的是过期地址与另一网卡的 MAC，登录仍然成功。该结论来自实测，协议文档中并无说明。
+- 程序按网卡名查地址，Windows 下 Interface 需填适配器名（如「以太网」），不能沿用 Linux 的 enp1s0f0 之类。认证流程在 Windows 上尚未实测。
+- 不保存状态文件，也不提供查询子命令，运行状态以日志为准。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

@@ -1,0 +1,9 @@
+# 真实配置里有账号密码
+/config.json
+
+# 编译产物
+/drcom
+/drcom-linux-amd64
+/drcom-windows-amd64.exe
+*.exe
+*.test

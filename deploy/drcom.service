@@ -1,0 +1,13 @@
+[Unit]
+Description=DRCOM campus network authentication
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/drcom -config /etc/drcom/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

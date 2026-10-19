@@ -1,0 +1,13 @@
+{
+  "Server": "192.168.255.249",
+  "Username": "YOUR_ACCOUNT",
+  "Password": "",
+  "Interface": "enp1s0f0",
+  "HostName": "Arch",
+  "HostOS": "8089D",
+  "AuthVersion": "0a00",
+  "KeepAliveVersion": "dc02",
+  "ControlCheckStatus": "20",
+  "AdapterNum": "07",
+  "IPDog": "01"
+}
