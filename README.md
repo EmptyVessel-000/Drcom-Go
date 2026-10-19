@@ -1,6 +1,6 @@
 # Drcom-Go
 
-校园网 DRCOM 认证客户端，Go 实现。
+Drcom-Go 是校园网 DRCOM 认证客户端，使用 Go 实现。
 
 本项目在西安石油大学鄠邑校区（DRCOM 5.2-d）实测并通过。
 
