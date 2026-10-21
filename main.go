@@ -220,27 +220,15 @@ func main() {
 
 	backoff := []time.Duration{5 * time.Second, 15 * time.Second, 60 * time.Second, 300 * time.Second}
 	step := 0
-	// 失败经 noteFailure，等待期内只输出一次。
-	// 前缀只写“哪一步失败了”，原因由 %v 带入，不与错误文案重复。
-	reported := false
-	noteFailure := func(format string, a ...any) {
-		if reported {
-			return
-		}
-		reported = true
-		log.Printf(format, a...)
-	}
-
 	// 配置与网卡地址只在启动时取一次，之后重连沿用同一份。
 	ip, mac, err := localAddr(cfg.Interface)
 	for err != nil {
-		noteFailure("网卡 %s 暂不可用: %v，等待网络恢复", cfg.Interface, err)
+		log.Printf("网卡 %s 暂不可用: %v，等待网络恢复", cfg.Interface, err)
 		time.Sleep(20 * time.Second)
 		ip, mac, err = localAddr(cfg.Interface)
 	}
 
 	// 套接字也只在启动时建一次；只有收发系统调用报错时才重建。
-	reported = false // 网卡已就绪，套接字失败要能单独报一次。
 	var conn *net.UDPConn
 	openSocket := func() {
 		for {
@@ -249,18 +237,17 @@ func main() {
 				conn = c
 				return
 			}
-			noteFailure("打开套接字失败: %v，等待网络恢复", err)
+			log.Printf("打开套接字失败: %v，等待网络恢复", err)
 			time.Sleep(20 * time.Second)
 		}
 	}
 	openSocket()
-	reported = false // 启动准备结束，登录阶段的失败要能单独报一次。
 
 	for {
 		s, err := login(conn, cfg, sp, ip, mac)
 		if err != nil {
 			if errors.Is(err, errSocketIO) {
-				noteFailure("套接字异常: %v，重建后重新登录", err)
+				log.Printf("套接字异常: %v，重建后重新登录", err)
 				conn.Close()
 				openSocket()
 				continue
@@ -275,30 +262,25 @@ func main() {
 					step++
 				}
 			}
-			noteFailure("登录失败: %v，%d 秒后重试", err, int(wait/time.Second))
+			log.Printf("登录失败: %v，%d 秒后重试", err, int(wait/time.Second))
 			time.Sleep(wait)
 			continue
 		}
 		step = 0
 
-		// 登录成功只证明认证服务器应答了，保活跑通一轮才说明链路真的可用。
-		// 内层第一轮成功即记一次上线，之后每轮静默。
-		first := true
+		// 每次登录成功都记一次上线，前面的失败行就是重连的成因。
 		for {
 			if err := round(conn, cfg, sp, s, ip); err != nil {
 				if errors.Is(err, errSocketIO) {
-					noteFailure("套接字异常: %v，重建后重新登录", err)
+					log.Printf("套接字异常: %v，重建后重新登录", err)
 					conn.Close()
 					openSocket()
 					break
 				}
-				noteFailure("保活中断: %v，重新登录", err)
+				log.Printf("保活中断: %v，重新登录", err)
 				break
 			}
-			if first {
-				first = false
-				log.Printf("上线成功: 账号=%s 地址=%s 网卡=%s 服务器=%s", cfg.Username, ip, mac, cfg.Server)
-			}
+			log.Printf("上线成功: 账号=%s 地址=%s 网卡=%s 服务器=%s", cfg.Username, ip, mac, cfg.Server)
 			if *once {
 				conn.Close()
 				return
